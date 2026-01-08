@@ -193,10 +193,9 @@ async def main():
             score_color = "#EF4444"
 
         # --- STEP 9: GET KEY-VALUE STORE INFO ---
-        # Get the default key-value store to save HTML report
+        # Get the default key-value store ID from configuration
         kvs = await Actor.open_key_value_store()
-        kvs_info = await kvs.get_info()
-        kvs_id = kvs_info.get('id') if kvs_info else 'default'
+        kvs_id = kvs.name if kvs.name else 'default'
         
         # --- STEP 10: GENERATE REPORT ---
         Actor.log.info("📄 Generating comprehensive audit report...")
