@@ -1,0 +1,27 @@
+{
+    "title": "Domain Vet Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "domain": {
+            "title": "Domain Name",
+            "type": "string",
+            "description": "The domain to audit (e.g. my-startup.com)",
+            "editor": "textfield"
+        },
+        "sensitivity": {
+            "title": "Spam Sensitivity",
+            "type": "string",
+            "enum": [
+                "Low",
+                "Medium",
+                "High"
+            ],
+            "default": "Medium",
+            "description": "How strict should the spam word detection be?"
+        }
+    },
+    "required": [
+        "domain"
+    ]
+}

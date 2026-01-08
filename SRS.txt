@@ -1,0 +1,380 @@
+📜 Software Requirements Specification (SRS)
+Project: Domain Vet - Domain History & Health Auditor
+Version: 1.0.0 Architecture: Zero-API (Archive.org + WHOIS + DNSBL) Output: "Due Diligence" HTML Audit Dashboard Target Audience: Domain Flippers, SEO Agencies, Startup Founders.
+
+1. Executive Summary
+Domain Vet is an automated due-diligence agent. It takes a domain name, investigates its past life using the Wayback Machine and public records, and generates a "Buy or Pass" Audit Report.
+
+It answers the critical question: "Is this domain safe to build a brand on, or does it have a toxic history (spam, gambling, penalties)?"
+
+🧱 The 3 New "Power Features"
+📉 Ownership Volatility Score: Analyzes gaps in Archive.org history. If a site was active, then dead, then active, then dead, it suggests it was "dropped" and re-registered multiple times (High Risk).
+
+🎰 Historical Tech Stack: Detects if the domain previously ran specific software. (e.g., If it suddenly switched from "WordPress" to "Static HTML" with Chinese characters, it was likely hacked or used for PBN spam).
+
+🛑 The "Toxic Word" Scan: Scans historical snapshots for red-flag keywords (Viagra, Casino, Loan, Replica, Adult) to calculate a "Spam Probability."
+
+2. Technical Architecture
+2.1 Technology Stack
+Historical Data: waybackpy (Interact with Internet Archive).
+
+Registration Data: python-whois.
+
+Reputation Check: pydnsbl (Check IP/Domain against Spamhaus/Zen).
+
+Text Analysis: BeautifulSoup + re (Regex for toxic keywords).
+
+Visualization: Jinja2 (HTML Dashboard).
+
+Infrastructure: Apify Actor (Python 3.11).
+
+2.2 Data Flow
+User Input: Enters cryptopro.com.
+
+WHOIS Scan: Checks creation date (Real Age) vs. current registrar.
+
+Time Travel:
+
+Fetches 3-5 snapshots from Archive.org (spread over the last 10 years).
+
+Scrapes the HTML of those snapshots.
+
+Forensics:
+
+Content Check: scans for toxic keywords.
+
+Tech Check: Detects meta tags (e.g., wp-content, shopify).
+
+Audit Generation: Calculates a Safety Score (0-100) and renders the dashboard.
+
+3. Implementation Specifications
+3.1 File Structure
+Plaintext
+
+domain-vet/
+├── .actor/
+│   ├── actor.json
+│   └── input_schema.json
+├── src/
+│   ├── main.py              # The Investigator
+│   ├── auditor.py           # Scoring Logic & Spam Detection
+│   └── templates/
+│       └── report.html      # The "Legal Audit" Dashboard
+├── Dockerfile
+├── requirements.txt
+└── README.md
+3.2 requirements.txt
+Plaintext
+
+apify
+waybackpy
+python-whois
+beautifulsoup4
+requests
+jinja2
+pydnsbl
+tldextract
+3.3 Input Schema (input_schema.json)
+JSON
+
+{
+    "title": "Domain Vet Input",
+    "type": "object",
+    "properties": {
+        "domain": {
+            "title": "Domain Name",
+            "type": "string",
+            "description": "The domain to audit (e.g. my-startup.com)",
+            "editor": "textfield"
+        },
+        "sensitivity": {
+            "title": "Spam Sensitivity",
+            "type": "string",
+            "enum": ["Low", "Medium", "High"],
+            "default": "Medium",
+            "description": "How strict should the spam word detection be?"
+        }
+    },
+    "required": ["domain"]
+}
+4. The Core Logic
+4.1 src/auditor.py (The Brain)
+This file handles the forensic analysis.
+
+Python
+
+import re
+from datetime import datetime
+
+# Red Flags that ruin a domain's reputation
+TOXIC_KEYWORDS = [
+    "casino", "poker", "betting", "viagra", "cialis", "loans", 
+    "replica", "watches", "adult", "xxx", "crypto", "giveaway"
+]
+
+def calculate_safety_score(whois_data, audit_log):
+    score = 100
+    reasons = []
+
+    # 1. Age Factor
+    if whois_data.get('creation_date'):
+        now = datetime.now()
+        # Handle list of dates (common whois bug)
+        c_date = whois_data['creation_date']
+        if isinstance(c_date, list): c_date = c_date[0]
+        
+        age_years = (now - c_date).days / 365
+        if age_years < 1:
+            score -= 10
+            reasons.append("⚠️ Domain is very young (< 1 year)")
+    
+    # 2. Spam History
+    if audit_log['toxic_count'] > 0:
+        penalty = audit_log['toxic_count'] * 15
+        score -= penalty
+        reasons.append(f"🚨 Found {audit_log['toxic_count']} instances of toxic content.")
+
+    # 3. Volatility (Gaps in history)
+    if audit_log['volatility'] == 'High':
+        score -= 20
+        reasons.append("⚠️ High Volatility: Domain likely dropped/reset multiple times.")
+
+    return max(0, score), reasons
+
+def scan_text_for_toxins(html_text):
+    """Returns list of found bad words"""
+    found = []
+    if not html_text: return found
+    
+    text_lower = html_text.lower()
+    for word in TOXIC_KEYWORDS:
+        if word in text_lower:
+            found.append(word)
+    return list(set(found)) # Unique only
+4.2 src/main.py (The Orchestrator)
+Python
+
+import asyncio
+from apify import Actor
+import whois
+import waybackpy
+from waybackpy.exceptions import WaybackError
+import requests
+from bs4 import BeautifulSoup
+from jinja2 import Environment, FileSystemLoader
+from .auditor import scan_text_for_toxins, calculate_safety_score
+
+async def main():
+    async with Actor:
+        inputs = await Actor.get_input() or {}
+        domain = inputs.get('domain', 'example.com').replace("https://", "").replace("http://", "").strip("/")
+
+        print(f"🕵️‍♂️ Starting Vetting Process for: {domain}")
+        
+        # --- STEP 1: WHOIS ---
+        try:
+            w = whois.whois(domain)
+            creation_date = w.creation_date
+            if isinstance(creation_date, list): creation_date = creation_date[0]
+            registrar = w.registrar
+        except:
+            creation_date = None
+            registrar = "Unknown / Hidden"
+
+        # --- STEP 2: TIME TRAVEL (Wayback) ---
+        print("⏳ Analyzing historical archives (This may take 10-20s)...")
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        wb = waybackpy.Url(f"http://{domain}", user_agent)
+        
+        snapshots = []
+        toxic_hits = 0
+        detected_tech = set()
+        
+        # Get snapshots from 2015, 2018, 2021, 2024 (approx logic)
+        try:
+            # Simple approach: get oldest, newest, and one in middle
+            archive_points = [wb.oldest(), wb.newest(), wb.near(year=2020)]
+            
+            for snap in archive_points:
+                if snap:
+                    try:
+                        print(f"   scanning snapshot: {snap.timestamp}")
+                        # Fetch HTML content
+                        resp = requests.get(snap.archive_url, timeout=10)
+                        if resp.status_code == 200:
+                            # Audit Content
+                            toxins = scan_text_for_toxins(resp.text)
+                            if toxins: toxic_hits += 1
+                            
+                            # Detect basic tech (simple string check)
+                            tech = "Static/Custom"
+                            if "wp-content" in resp.text: tech = "WordPress"
+                            elif "shopify" in resp.text: tech = "Shopify"
+                            detected_tech.add(tech)
+
+                            snapshots.append({
+                                "date": snap.timestamp.strftime('%Y-%m-%d'),
+                                "url": snap.archive_url,
+                                "toxins": ", ".join(toxins) if toxins else "Clean",
+                                "tech": tech
+                            })
+                    except Exception as e:
+                        print(f"Skipping broken snapshot: {e}")
+        except Exception:
+            print("⚠️ Wayback Machine unavailable or no history found.")
+
+        # --- STEP 3: CALCULATE SCORE ---
+        audit_data = {
+            "toxic_count": toxic_hits,
+            "volatility": "High" if len(snapshots) < 2 and creation_date else "Low" # Simple logic for demo
+        }
+        
+        score, reasons = calculate_safety_score(w, audit_data)
+        
+        # --- STEP 4: GENERATE REPORT ---
+        env = Environment(loader=FileSystemLoader('src/templates'))
+        template = env.get_template('report.html')
+        
+        html = template.render(
+            domain=domain,
+            score=score,
+            score_color="#10B981" if score > 70 else ("#F59E0B" if score > 40 else "#EF4444"),
+            verdict="SAFE TO BUY" if score > 70 else "HIGH RISK",
+            age=creation_date.strftime('%Y-%m-%d') if creation_date else "N/A",
+            registrar=registrar,
+            reasons=reasons,
+            snapshots=snapshots,
+            tech_stack=", ".join(detected_tech) or "None Detected"
+        )
+        
+        await Actor.set_value('OUTPUT_REPORT', html, content_type='text/html')
+        kvs_id = Actor.get_env()['defaultKeyValueStoreId']
+        report_url = f"https://api.apify.com/v2/key-value-stores/{kvs_id}/records/OUTPUT_REPORT"
+        
+        print(f"🚀 AUDIT COMPLETE. Report: {report_url}")
+        
+        await Actor.push_data({
+            "domain": domain, 
+            "score": score, 
+            "verdict": "SAFE" if score > 70 else "RISK",
+            "report_url": report_url
+        })
+
+if __name__ == '__main__':
+    asyncio.run(main())
+4.3 src/templates/report.html (The "Legal Audit" UI)
+A clean, professional design inspired by financial audits.
+
+HTML
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Domain Vet: {{ domain }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #F8FAFC; --panel: #FFFFFF; --text: #1E293B; --danger: #EF4444; --success: #10B981; --warn: #F59E0B; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); padding: 40px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        .badge { background: #0F172A; color: white; padding: 4px 12px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+        
+        /* Score Card */
+        .score-panel { background: var(--panel); border: 1px solid #E2E8F0; border-radius: 12px; padding: 40px; text-align: center; margin-bottom: 30px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .score-circle { 
+            width: 120px; height: 120px; border-radius: 50%; 
+            border: 8px solid {{ score_color }}; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 3rem; font-weight: 800; color: {{ score_color }};
+            margin: 0 auto 20px auto;
+        }
+        .verdict { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; text-transform: uppercase; }
+
+        /* Grid */
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .card { background: var(--panel); padding: 25px; border-radius: 8px; border: 1px solid #E2E8F0; }
+        .label { color: #64748B; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 8px; }
+        .value { font-size: 1.2rem; font-weight: 600; }
+
+        /* Timeline */
+        .timeline { list-style: none; padding: 0; }
+        .timeline-item { display: flex; padding: 15px 0; border-bottom: 1px solid #F1F5F9; }
+        .date { width: 120px; font-family: 'JetBrains Mono', monospace; color: #64748B; }
+        .content { flex-grow: 1; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .tag-clean { background: #DCFCE7; color: #166534; }
+        .tag-toxic { background: #FEE2E2; color: #991B1B; }
+
+        /* Reasons */
+        .alert-box { background: #FFF7ED; border-left: 4px solid var(--warn); padding: 20px; margin-bottom: 30px; }
+        .alert-title { font-weight: bold; color: #9A3412; margin-bottom: 10px; display: block; }
+        .alert-list { margin: 0; padding-left: 20px; color: #9A3412; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <span class="badge">DOMAIN VET AUDIT v1.0</span>
+                <h1 style="margin: 10px 0 0 0;">{{ domain }}</h1>
+            </div>
+            <div style="text-align: right; color: #64748B;">
+                Generated on: <script>document.write(new Date().toLocaleDateString())</script>
+            </div>
+        </div>
+
+        <div class="score-panel">
+            <div class="score-circle">{{ score }}</div>
+            <div class="verdict" style="color: {{ score_color }}">{{ verdict }}</div>
+            <p style="color: #64748B; margin-top: 10px;">Safety Confidence Score</p>
+        </div>
+
+        {% if reasons %}
+        <div class="alert-box">
+            <span class="alert-title">⚠️ Audit Findings</span>
+            <ul class="alert-list">
+                {% for reason in reasons %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="grid">
+            <div class="card">
+                <div class="label">Registrar Info</div>
+                <div class="value">{{ registrar }}</div>
+                <div style="font-size: 0.9rem; color: #64748B; margin-top: 5px;">Created: {{ age }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Historical Tech Stack</div>
+                <div class="value">{{ tech_stack }}</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="label">Archive.org Timeline Analysis</div>
+            <ul class="timeline">
+                {% for snap in snapshots %}
+                <li class="timeline-item">
+                    <div class="date">{{ snap.date }}</div>
+                    <div class="content">
+                        <strong>Snapshot Content Scan</strong><br>
+                        {% if snap.toxins == "Clean" %}
+                        <span class="tag tag-clean">CLEAN CONTENT</span>
+                        {% else %}
+                        <span class="tag tag-toxic">⚠️ FOUND: {{ snap.toxins }}</span>
+                        {% endif %}
+                        <span style="color: #94A3B8; font-size: 0.85rem; margin-left: 10px;">Tech: {{ snap.tech }}</span>
+                    </div>
+                    <a href="{{ snap.url }}" target="_blank" style="color: #2563EB; text-decoration: none; font-size: 0.9rem;">View -></a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

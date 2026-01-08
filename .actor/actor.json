@@ -1,0 +1,13 @@
+{
+    "actorSpecification": 1,
+    "name": "domain-vet",
+    "title": "Domain Vet - Domain History & Health Auditor",
+    "description": "Automated due-diligence agent that investigates domain history using Wayback Machine and WHOIS to generate a 'Buy or Pass' Audit Report.",
+    "version": "1.0.0",
+    "meta": {
+        "templateId": "python-start"
+    },
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "dockerfile": "../Dockerfile"
+}
