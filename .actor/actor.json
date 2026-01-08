@@ -9,5 +9,55 @@
     },
     "input": "./input_schema.json",
     "output": "./output_schema.json",
+    "storages": {
+        "dataset": {
+            "actorInputSchemaVersion": 1,
+            "title": "Domain Audit Data",
+            "views": {
+                "overview": {
+                    "title": "Overview",
+                    "transformation": {
+                        "fields": [
+                            "domain",
+                            "score",
+                            "verdict",
+                            "registrar",
+                            "volatility",
+                            "report_url"
+                        ]
+                    },
+                    "display": {
+                        "component": "table",
+                        "properties": {
+                            "domain": {
+                                "label": "Domain",
+                                "format": "text"
+                            },
+                            "score": {
+                                "label": "Safety Score",
+                                "format": "number"
+                            },
+                            "verdict": {
+                                "label": "Verdict",
+                                "format": "text"
+                            },
+                            "registrar": {
+                                "label": "Registrar",
+                                "format": "text"
+                            },
+                            "volatility": {
+                                "label": "Volatility",
+                                "format": "text"
+                            },
+                            "report_url": {
+                                "label": "Report",
+                                "format": "link"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
     "dockerfile": "../Dockerfile"
 }

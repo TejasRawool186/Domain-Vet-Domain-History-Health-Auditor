@@ -1,0 +1,93 @@
+{
+    "actorInputSchemaVersion": 1,
+    "title": "Domain Vet Audit Results",
+    "description": "Comprehensive domain audit data including safety score, WHOIS info, tech stack, and risk analysis",
+    "type": "object",
+    "properties": {
+        "domain": {
+            "title": "Domain",
+            "type": "string",
+            "description": "The domain that was audited"
+        },
+        "score": {
+            "title": "Safety Score",
+            "type": "integer",
+            "description": "Safety confidence score from 0-100"
+        },
+        "verdict": {
+            "title": "Verdict",
+            "type": "string",
+            "description": "Final recommendation: SAFE TO BUY, PROCEED WITH CAUTION, or HIGH RISK"
+        },
+        "registrar": {
+            "title": "Registrar",
+            "type": "string",
+            "description": "Domain registrar information"
+        },
+        "creation_date": {
+            "title": "Creation Date",
+            "type": "string",
+            "description": "Domain registration date"
+        },
+        "expiry_date": {
+            "title": "Expiry Date",
+            "type": "string",
+            "description": "Domain expiration date"
+        },
+        "days_until_expiry": {
+            "title": "Days Until Expiry",
+            "type": "integer",
+            "description": "Number of days until domain expires"
+        },
+        "tech_stack": {
+            "title": "Tech Stack",
+            "type": "array",
+            "description": "Historical technology stack detected"
+        },
+        "toxic_keywords_found": {
+            "title": "Toxic Keywords",
+            "type": "array",
+            "description": "List of toxic/spam keywords found in historical content"
+        },
+        "volatility": {
+            "title": "Volatility",
+            "type": "string",
+            "description": "Ownership volatility assessment: Low, Medium, High, or Unknown"
+        },
+        "snapshots_analyzed": {
+            "title": "Snapshots Analyzed",
+            "type": "integer",
+            "description": "Number of Archive.org snapshots analyzed"
+        },
+        "risk_reasons": {
+            "title": "Risk Reasons",
+            "type": "array",
+            "description": "List of identified risk factors affecting the safety score"
+        },
+        "ssl": {
+            "title": "SSL Status",
+            "type": "object",
+            "description": "SSL certificate analysis results"
+        },
+        "dns": {
+            "title": "DNS Info",
+            "type": "object",
+            "description": "DNS and MX record analysis"
+        },
+        "blacklist": {
+            "title": "Blacklist Status",
+            "type": "object",
+            "description": "DNSBL blacklist check results"
+        },
+        "redirects": {
+            "title": "Redirect Info",
+            "type": "object",
+            "description": "Redirect chain analysis"
+        },
+        "report_url": {
+            "title": "Report URL",
+            "type": "string",
+            "description": "URL to the full HTML audit report"
+        }
+    }
+}

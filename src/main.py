@@ -192,12 +192,20 @@ async def main():
             verdict = "HIGH RISK"
             score_color = "#EF4444"
 
-        # --- STEP 9: GENERATE REPORT ---
+        # --- STEP 9: GET KEY-VALUE STORE INFO ---
+        # Get the default key-value store to save HTML report
+        kvs = await Actor.open_key_value_store()
+        kvs_info = await kvs.get_info()
+        kvs_id = kvs_info.get('id') if kvs_info else 'default'
+        
+        # --- STEP 10: GENERATE REPORT ---
         Actor.log.info("📄 Generating comprehensive audit report...")
         
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
         env = Environment(loader=FileSystemLoader(template_dir))
         template = env.get_template('report.html')
+        
+        report_url = f"https://api.apify.com/v2/key-value-stores/{kvs_id}/records/OUTPUT_REPORT"
         
         html = template.render(
             domain=domain,
@@ -221,9 +229,6 @@ async def main():
         
         # Save report to Key-Value Store
         await Actor.set_value('OUTPUT_REPORT', html, content_type='text/html')
-        kvs_info = Actor.get_env()
-        kvs_id = kvs_info.get('defaultKeyValueStoreId', 'unknown')
-        report_url = f"https://api.apify.com/v2/key-value-stores/{kvs_id}/records/OUTPUT_REPORT"
         
         Actor.log.info(f"🚀 AUDIT COMPLETE!")
         Actor.log.info(f"📊 Safety Score: {score}/100")
