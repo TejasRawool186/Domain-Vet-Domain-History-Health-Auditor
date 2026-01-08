@@ -3,6 +3,12 @@ main.py - The Orchestrator
 Domain Vet: Automated due-diligence agent for domain history investigation.
 """
 import asyncio
+import sys
+import os
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from apify import Actor
 import whois
 import waybackpy
@@ -10,7 +16,6 @@ from waybackpy.exceptions import WaybackError
 import requests
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
-import os
 
 from auditor import (
     scan_text_for_toxins, 

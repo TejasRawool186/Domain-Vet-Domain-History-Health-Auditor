@@ -7,7 +7,8 @@
             "title": "Domain Name",
             "type": "string",
             "description": "The domain to audit (e.g. my-startup.com)",
-            "editor": "textfield"
+            "editor": "textfield",
+            "prefill": "star.ai"
         },
         "sensitivity": {
             "title": "Spam Sensitivity",

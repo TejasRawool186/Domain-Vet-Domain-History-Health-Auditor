@@ -8,8 +8,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . ./
 
-# Set working directory
-WORKDIR /home/myuser
-
-# Run the actor
-CMD ["python", "-m", "src.main"]
+# Run the actor from src directory
+CMD ["python", "src/main.py"]
