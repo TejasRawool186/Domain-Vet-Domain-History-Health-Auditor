@@ -1,9 +1,52 @@
 {
-    "actorInputSchemaVersion": 1,
+    "actorSpecification": 1,
     "title": "Domain Vet Audit Results",
     "description": "Comprehensive domain audit data including safety score, WHOIS info, tech stack, and risk analysis",
-    "type": "object",
-    "properties": {
+    "views": {
+        "overview": {
+            "title": "Audit Overview",
+            "transformation": {
+                "fields": [
+                    "domain",
+                    "score",
+                    "verdict",
+                    "registrar",
+                    "volatility",
+                    "report_url"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "domain": {
+                        "label": "Domain",
+                        "format": "text"
+                    },
+                    "score": {
+                        "label": "Safety Score",
+                        "format": "number"
+                    },
+                    "verdict": {
+                        "label": "Verdict",
+                        "format": "text"
+                    },
+                    "registrar": {
+                        "label": "Registrar",
+                        "format": "text"
+                    },
+                    "volatility": {
+                        "label": "Volatility",
+                        "format": "text"
+                    },
+                    "report_url": {
+                        "label": "Report",
+                        "format": "link"
+                    }
+                }
+            }
+        }
+    },
+    "fields": {
         "domain": {
             "title": "Domain",
             "type": "string",
