@@ -40,6 +40,68 @@ async def main():
         # Clean domain input
         domain = domain.replace("https://", "").replace("http://", "").strip("/").strip()
         
+        # Save a loading placeholder immediately so the Output tab has something to show
+        loading_html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain Vet: {domain}</title>
+    <meta http-equiv="refresh" content="5">
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }}
+        .container {{
+            text-align: center;
+            padding: 40px;
+        }}
+        .spinner {{
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255,255,255,0.2);
+            border-top-color: #3B82F6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 30px;
+        }}
+        @keyframes spin {{
+            to {{ transform: rotate(360deg); }}
+        }}
+        h1 {{ font-size: 1.8rem; margin-bottom: 10px; }}
+        .domain {{ color: #60A5FA; font-family: monospace; font-size: 1.5rem; }}
+        p {{ color: #94A3B8; margin-top: 15px; font-size: 0.95rem; }}
+        .steps {{ margin-top: 30px; text-align: left; max-width: 400px; margin-left: auto; margin-right: auto; }}
+        .step {{ padding: 10px 0; color: #64748B; display: flex; align-items: center; gap: 10px; }}
+        .step.active {{ color: #10B981; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h1>🔍 Auditing Domain</h1>
+        <div class="domain">{domain}</div>
+        <p>Analyzing domain history, WHOIS, SSL, DNS, and blacklists...</p>
+        <p style="font-size: 0.85rem; margin-top: 25px; opacity: 0.7;">This page will auto-refresh when the audit is complete.</p>
+        <div class="steps">
+            <div class="step active">✓ WHOIS lookup</div>
+            <div class="step">⏳ SSL certificate analysis</div>
+            <div class="step">⏳ DNS/MX records check</div>
+            <div class="step">⏳ Wayback Machine scan</div>
+            <div class="step">⏳ Generating report...</div>
+        </div>
+    </div>
+</body>
+</html>'''
+        await Actor.set_value('OUTPUT_REPORT', loading_html, content_type='text/html')
+        
         Actor.log.info(f"🕵️‍♂️ Starting Vetting Process for: {domain}")
         Actor.log.info(f"📊 Sensitivity Level: {sensitivity}")
         
@@ -266,11 +328,6 @@ async def main():
         # Save report to Key-Value Store
         await Actor.set_value('OUTPUT_REPORT', html, content_type='text/html')
         
-        Actor.log.info(f"🚀 AUDIT COMPLETE!")
-        Actor.log.info(f"📊 Safety Score: {score}/100")
-        Actor.log.info(f"📋 Verdict: {verdict}")
-        Actor.log.info(f"🔗 Report URL: {report_url}")
-        
         # Push comprehensive structured data to dataset
         await Actor.push_data({
             "domain": domain,
@@ -317,6 +374,12 @@ async def main():
             },
             "report_url": report_url
         })
+        
+        Actor.log.info(f"🚀 AUDIT COMPLETE!")
+        Actor.log.info(f"📊 Safety Score: {score}/100")
+        Actor.log.info(f"📋 Verdict: {verdict}")
+        Actor.log.info(f"🔗 Report URL: {report_url}")
+        Actor.log.info(f"✅ Dashboard saved to key-value store")
 
 
 if __name__ == '__main__':
