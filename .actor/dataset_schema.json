@@ -8,8 +8,10 @@
             "transformation": {
                 "fields": [
                     "domain",
+                    "is_available",
                     "score",
                     "verdict",
+                    "current_owner",
                     "registrar",
                     "volatility",
                     "report_url"
@@ -22,12 +24,20 @@
                         "label": "Domain",
                         "format": "text"
                     },
+                    "is_available": {
+                        "label": "Available?",
+                        "format": "text"
+                    },
                     "score": {
-                        "label": "Safety Score",
+                        "label": "Health Score",
                         "format": "number"
                     },
                     "verdict": {
                         "label": "Verdict",
+                        "format": "text"
+                    },
+                    "current_owner": {
+                        "label": "Current Owner",
                         "format": "text"
                     },
                     "registrar": {
@@ -60,7 +70,22 @@
         "verdict": {
             "title": "Verdict",
             "type": "string",
-            "description": "Final recommendation: SAFE TO BUY, PROCEED WITH CAUTION, or HIGH RISK"
+            "description": "Final recommendation based on availability and health score"
+        },
+        "is_available": {
+            "title": "Domain Available",
+            "type": "boolean",
+            "description": "Whether the domain is available for purchase (true) or already registered (false)"
+        },
+        "is_registered": {
+            "title": "Domain Registered",
+            "type": "boolean",
+            "description": "Whether the domain is already registered and owned by someone"
+        },
+        "current_owner": {
+            "title": "Current Owner",
+            "type": "string",
+            "description": "Current owner/organization of the domain (if available from WHOIS)"
         },
         "registrar": {
             "title": "Registrar",

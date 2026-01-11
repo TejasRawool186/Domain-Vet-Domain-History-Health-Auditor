@@ -446,3 +446,99 @@ def check_redirect_chain(domain):
         result['error'] = str(e)
     
     return result
+
+
+def check_domain_availability(whois_data, domain):
+    """
+    Check if the domain is already registered or available for purchase.
+    Returns dict with availability analysis.
+    
+    A domain is considered REGISTERED (not available) if:
+    - WHOIS has valid creation_date
+    - WHOIS has valid registrar info
+    - WHOIS has registrant/owner info
+    - Domain resolves to an IP (has active DNS)
+    
+    A domain is considered AVAILABLE (can be purchased) if:
+    - WHOIS lookup returns no data
+    - Domain status indicates it's available
+    """
+    result = {
+        'is_registered': False,
+        'is_available': False,
+        'owner': None,
+        'registrar': None,
+        'status': [],
+        'reason': None
+    }
+    
+    try:
+        # Check 1: WHOIS data presence
+        if whois_data:
+            # Check for valid registration indicators
+            has_creation_date = False
+            has_registrar = False
+            has_owner = False
+            
+            # Check creation date
+            if hasattr(whois_data, 'creation_date') and whois_data.creation_date:
+                has_creation_date = True
+            
+            # Check registrar
+            if hasattr(whois_data, 'registrar') and whois_data.registrar:
+                has_registrar = True
+                result['registrar'] = whois_data.registrar
+            
+            # Check for owner/registrant info
+            if hasattr(whois_data, 'name') and whois_data.name:
+                has_owner = True
+                result['owner'] = whois_data.name
+            elif hasattr(whois_data, 'org') and whois_data.org:
+                has_owner = True
+                result['owner'] = whois_data.org
+            elif hasattr(whois_data, 'registrant_name') and whois_data.registrant_name:
+                has_owner = True
+                result['owner'] = whois_data.registrant_name
+            
+            # Check domain status
+            if hasattr(whois_data, 'status') and whois_data.status:
+                status = whois_data.status
+                if isinstance(status, list):
+                    result['status'] = status[:3]  # First 3 statuses
+                else:
+                    result['status'] = [status]
+            
+            # Domain is registered if it has creation date OR registrar
+            if has_creation_date or has_registrar:
+                result['is_registered'] = True
+                result['is_available'] = False
+                result['reason'] = "Domain has valid WHOIS registration data"
+            else:
+                result['is_available'] = True
+                result['reason'] = "No valid registration data found"
+        else:
+            # No WHOIS data - domain might be available
+            result['is_available'] = True
+            result['reason'] = "WHOIS lookup returned no data"
+        
+        # Check 2: DNS resolution as additional indicator
+        try:
+            import socket
+            ip = socket.gethostbyname(domain)
+            if ip and result['is_available']:
+                # Domain resolves but has no WHOIS - unusual, mark as registered
+                result['is_registered'] = True
+                result['is_available'] = False
+                result['reason'] = "Domain resolves to IP - likely registered"
+        except socket.gaierror:
+            # Domain doesn't resolve - could be available or just parked
+            pass
+            
+    except Exception as e:
+        result['error'] = str(e)
+        # Default to registered for safety (avoid false "available" claims)
+        result['is_registered'] = True
+        result['is_available'] = False
+        result['reason'] = f"Could not determine availability: {e}"
+    
+    return result

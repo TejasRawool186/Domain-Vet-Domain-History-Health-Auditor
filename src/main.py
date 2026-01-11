@@ -26,7 +26,8 @@ from auditor import (
     check_ssl_certificate,
     check_dns_records,
     check_domain_expiry,
-    check_redirect_chain
+    check_redirect_chain,
+    check_domain_availability
 )
 
 
@@ -63,6 +64,17 @@ async def main():
         # --- STEP 2: DOMAIN EXPIRY CHECK ---
         Actor.log.info("📅 Checking domain expiration...")
         expiry_info = check_domain_expiry(whois_data)
+        
+        # --- STEP 2.5: DOMAIN AVAILABILITY CHECK ---
+        Actor.log.info("🔎 Checking domain availability...")
+        availability_info = check_domain_availability(whois_data, domain)
+        is_domain_available = availability_info.get('is_available', False)
+        is_domain_registered = availability_info.get('is_registered', True)
+        
+        if is_domain_registered:
+            Actor.log.info(f"📋 Domain Status: REGISTERED (owned by someone)")
+        else:
+            Actor.log.info(f"📋 Domain Status: POTENTIALLY AVAILABLE")
         
         # --- STEP 3: DNSBL BLACKLIST CHECK ---
         Actor.log.info("🔍 Checking spam blacklists (DNSBL)...")
@@ -181,16 +193,37 @@ async def main():
         
         score, reasons = calculate_safety_score(whois_data, audit_data)
         
-        # Determine verdict
-        if score > 70:
-            verdict = "SAFE TO BUY"
-            score_color = "#10B981"
-        elif score > 40:
-            verdict = "PROCEED WITH CAUTION"
-            score_color = "#F59E0B"
+        # Determine verdict based on domain availability
+        if is_domain_registered:
+            # Domain is already registered - NOT available for purchase
+            # But still show health score for research purposes
+            if score > 70:
+                verdict = "REGISTERED - EXCELLENT HEALTH"
+                score_color = "#3B82F6"  # Blue
+            elif score > 40:
+                verdict = "REGISTERED - MODERATE HEALTH"
+                score_color = "#8B5CF6"  # Purple
+            else:
+                verdict = "REGISTERED - POOR HEALTH"
+                score_color = "#6B7280"  # Gray
+            
+            # Add availability notice to reasons
+            reasons.insert(0, "🚫 DOMAIN NOT AVAILABLE - Already registered and owned by someone")
+            if availability_info.get('owner'):
+                reasons.insert(1, f"👤 Current Owner/Org: {availability_info.get('owner')}")
         else:
-            verdict = "HIGH RISK"
-            score_color = "#EF4444"
+            # Domain appears to be available for purchase
+            if score > 70:
+                verdict = "AVAILABLE - SAFE TO BUY"
+                score_color = "#10B981"  # Green
+            elif score > 40:
+                verdict = "AVAILABLE - PROCEED WITH CAUTION"
+                score_color = "#F59E0B"  # Orange
+            else:
+                verdict = "AVAILABLE - HIGH RISK"
+                score_color = "#EF4444"  # Red
+            
+            reasons.insert(0, "✅ DOMAIN AVAILABLE - Can be purchased from a registrar")
 
         # --- STEP 9: GET KEY-VALUE STORE INFO ---
         # Get the default key-value store ID from configuration
@@ -223,7 +256,11 @@ async def main():
             dns_info=dns_result,
             dnsbl_info=dnsbl_result,
             expiry_info=expiry_info,
-            redirect_info=redirect_result
+            redirect_info=redirect_result,
+            # Domain availability
+            availability_info=availability_info,
+            is_domain_available=is_domain_available,
+            is_domain_registered=is_domain_registered
         )
         
         # Save report to Key-Value Store
@@ -239,6 +276,11 @@ async def main():
             "domain": domain,
             "score": score,
             "verdict": verdict,
+            # Domain Availability - IMPORTANT FIELD
+            "is_available": is_domain_available,
+            "is_registered": is_domain_registered,
+            "current_owner": availability_info.get('owner'),
+            # Registration Info
             "registrar": registrar,
             "creation_date": creation_date.strftime('%Y-%m-%d') if creation_date else None,
             "expiry_date": expiry_info.get('expiry_date'),

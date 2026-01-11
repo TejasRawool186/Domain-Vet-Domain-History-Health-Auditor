@@ -1,19 +1,18 @@
 {
     "actorOutputSchemaVersion": 1,
-    "title": "Domain Vet Audit Results",
-    "description": "Domain history and health audit report with safety score, toxic content detection, and ownership analysis.",
-    "type": "object",
+    "title": "Domain Vet Audit Report",
+    "description": "Comprehensive domain availability and health audit with historical analysis",
     "properties": {
-        "auditReport": {
+        "report": {
             "type": "string",
-            "title": "📊 Audit Report Dashboard",
-            "description": "Interactive HTML dashboard with complete domain audit findings",
+            "title": "📊 Visual Audit Dashboard",
+            "description": "Interactive HTML report with domain availability status, health score, WHOIS info, SSL/DNS analysis, and historical timeline",
             "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT_REPORT"
         },
-        "auditData": {
+        "data": {
             "type": "string",
-            "title": "📋 Structured Audit Data",
-            "description": "JSON data with domain score, WHOIS info, tech stack, and risk factors",
+            "title": "📋 Structured JSON Data",
+            "description": "Machine-readable audit data including availability status, scores, and all findings",
             "template": "{{links.apiDefaultDatasetUrl}}/items"
         }
     }

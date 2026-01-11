@@ -389,11 +389,39 @@
             </div>
         </div>
 
+        <!-- Domain Availability Banner -->
+        {% if is_domain_registered %}
+        <div
+            style="background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; padding: 20px 30px; border-radius: 12px; margin-bottom: 25px; text-align: center; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
+            <div style="font-size: 1.5rem; font-weight: 800; margin-bottom: 5px;">🚫 DOMAIN NOT AVAILABLE</div>
+            <div style="font-size: 1rem; opacity: 0.95;">This domain is already registered and owned by someone else
+            </div>
+            {% if availability_info.owner %}
+            <div
+                style="margin-top: 10px; padding: 8px 15px; background: rgba(255,255,255,0.15); border-radius: 6px; display: inline-block;">
+                <span style="opacity: 0.8;">Owner:</span> <strong>{{ availability_info.owner }}</strong>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div
+            style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 20px 30px; border-radius: 12px; margin-bottom: 25px; text-align: center; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
+            <div style="font-size: 1.5rem; font-weight: 800; margin-bottom: 5px;">✅ DOMAIN AVAILABLE</div>
+            <div style="font-size: 1rem; opacity: 0.95;">This domain appears to be available for registration</div>
+        </div>
+        {% endif %}
+
         <!-- Score Panel -->
         <div class="score-panel">
             <div class="score-circle">{{ score }}</div>
             <div class="verdict" style="color: {{ score_color }}">{{ verdict }}</div>
-            <p style="color: #64748B; margin-top: 10px;">Safety Confidence Score (0-100)</p>
+            <p style="color: #64748B; margin-top: 10px;">
+                {% if is_domain_registered %}
+                Domain Health Score (for research purposes)
+                {% else %}
+                Safety Confidence Score (0-100)
+                {% endif %}
+            </p>
         </div>
 
         <!-- Quick Stats -->
