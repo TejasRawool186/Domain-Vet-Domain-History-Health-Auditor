@@ -317,9 +317,45 @@ def calculate_volatility(snapshots, creation_date):
     return "Low"
 
 
+# Query refusal / error return codes from Spamhaus and other RBLs
+# 127.255.255.x: Spamhaus query refused or open resolver blocked
+# 127.0.1.255: Spamhaus DBL error (IP query to domain list)
+# 127.0.0.1: Generic query error / localhost refusal
+DNSBL_REFUSED_CODES = {
+    '127.255.255.252',
+    '127.255.255.254',
+    '127.255.255.255',
+    '127.0.1.255',
+    '127.0.0.1'
+}
+
+
+def _filter_dnsbl_results(checker_result):
+    """
+    Filter out query refusal and open resolver block codes (such as Spamhaus 127.255.255.254)
+    that naive RBL checkers falsely report as active spam listings.
+    """
+    genuine = []
+    if not hasattr(checker_result, '_results') or not checker_result._results:
+        return genuine
+    for r in checker_result._results:
+        if not r.response or r.error:
+            continue
+        is_genuine = False
+        for entry in r.response:
+            host_ip = getattr(entry, 'host', str(entry))
+            if host_ip not in DNSBL_REFUSED_CODES and not host_ip.startswith('127.255.'):
+                is_genuine = True
+                break
+        if is_genuine:
+            genuine.append(r.provider.host)
+    return genuine
+
+
 async def check_dnsbl(domain):
     """
     Check if domain or resolved IP is listed on DNS blacklists using pydnsbl.
+    Filters out open-resolver refusal codes to prevent false positive flags on trusted domains.
     """
     result = {
         'blacklisted': False,
@@ -338,10 +374,11 @@ async def check_dnsbl(domain):
         else:
             domain_result = domain_checker.check(domain)
         
-        if domain_result.blacklisted:
+        genuine_domain_hits = _filter_dnsbl_results(domain_result)
+        if genuine_domain_hits:
             result['blacklisted'] = True
-            result['blacklist_count'] = len(domain_result.detected_by)
-            result['blacklists'] = list(domain_result.detected_by.keys())
+            result['blacklist_count'] = len(genuine_domain_hits)
+            result['blacklists'] = list(set(genuine_domain_hits))
         
         try:
             ip = socket.gethostbyname(domain)
@@ -352,10 +389,11 @@ async def check_dnsbl(domain):
             else:
                 ip_result = ip_checker.check(ip)
             
-            if ip_result.blacklisted:
+            genuine_ip_hits = _filter_dnsbl_results(ip_result)
+            if genuine_ip_hits:
                 result['blacklisted'] = True
-                result['blacklist_count'] += len(ip_result.detected_by)
-                result['blacklists'].extend(list(ip_result.detected_by.keys()))
+                result['blacklist_count'] += len(genuine_ip_hits)
+                result['blacklists'].extend(genuine_ip_hits)
                 result['blacklists'] = list(set(result['blacklists']))
         except socket.gaierror:
             pass
@@ -638,12 +676,25 @@ def check_redirect_chain(domain, proxies=None):
         if result['redirect_count'] > 3:
             result['suspicious'] = True
         
-        original_domain = domain.lower().replace('www.', '')
-        final_domain = urlparse(response.url).netloc.lower().replace('www.', '')
+        # Check brand consistency via tldextract
+        import tldextract
+        extractor = tldextract.TLDExtract(suffix_list_urls=None)
+        orig_ext = extractor(domain)
+        final_ext = extractor(response.url)
         
-        if original_domain not in final_domain and final_domain not in original_domain:
-            result['suspicious'] = True
-            result['domain_changed'] = True
+        orig_brand = orig_ext.domain.lower() if orig_ext.domain else ""
+        final_brand = final_ext.domain.lower() if final_ext.domain else ""
+        
+        # If brands match (e.g. apple.in -> apple.com), it is a legitimate brand redirect
+        if orig_brand and final_brand and orig_brand == final_brand:
+            result['same_brand'] = True
+            result['domain_changed'] = False
+        else:
+            original_domain = domain.lower().replace('www.', '')
+            final_domain = urlparse(response.url).netloc.lower().replace('www.', '')
+            if original_domain not in final_domain and final_domain not in original_domain:
+                result['suspicious'] = True
+                result['domain_changed'] = True
             
     except requests.exceptions.SSLError:
         try:
@@ -857,12 +908,14 @@ def calculate_safety_score(whois_data, audit_data):
         score -= 10
         infra_penalty += 15
         add_finding("WARNING", "SSL", f"SSL certificate issue: {ssl_status.get('error')}")
-    elif ssl_status.get('days_until_expiry', 365) is not None and ssl_status.get('days_until_expiry', 365) < 30:
+    elif ssl_status.get('days_until_expiry', 365) is not None and ssl_status.get('days_until_expiry', 365) < 7:
         score -= 5
         infra_penalty += 10
-        add_finding("WARNING", "SSL", f"SSL certificate expires in {ssl_status.get('days_until_expiry')} days.")
+        add_finding("WARNING", "SSL", f"SSL certificate expires in {ssl_status.get('days_until_expiry')} days (immediate renewal required).")
     elif ssl_status.get('valid'):
-        add_finding("INFO", "SSL", f"Valid SSL certificate issued by {ssl_status.get('issuer', 'Trusted CA')}.")
+        days_exp = ssl_status.get('days_until_expiry')
+        exp_text = f" (renews in {days_exp} days)" if days_exp is not None else ""
+        add_finding("INFO", "SSL", f"Valid SSL certificate issued by {ssl_status.get('issuer', 'Trusted CA')}{exp_text}.")
 
     # 10. Email Security (SPF & DMARC)
     email_sec = audit_data.get('email_security', {})
@@ -882,17 +935,26 @@ def calculate_safety_score(whois_data, audit_data):
         stability_penalty += 10
         add_finding("WARNING", "Registration", f"Domain registration expires in {days_left} days.")
 
-    # 12. Suspicious Redirects
-    if audit_data.get('redirect_count', 0) > 3 or audit_data.get('domain_changed', False):
+    # 12. Redirect Chain Status
+    if audit_data.get('domain_changed', False):
         score -= 15
         infra_penalty += 20
         add_finding("WARNING", "Redirects", "Suspicious redirect chain detected leading to an alternate destination.")
+    elif audit_data.get('redirect_count', 0) > 4:
+        score -= 10
+        infra_penalty += 10
+        add_finding("WARNING", "Redirects", f"Excessive redirect chain detected ({audit_data.get('redirect_count')} hops).")
+    elif audit_data.get('redirect_count', 0) > 0:
+        add_finding("INFO", "Redirects", f"Normal HTTP redirect chain observed ({audit_data.get('redirect_count')} hop(s)).")
 
     # 13. MX Records
     if audit_data.get('no_mx_records', False):
-        score -= 5
-        infra_penalty += 5
-        add_finding("INFO", "Email Infrastructure", "No MX mail server records detected.")
+        if audit_data.get('redirect_count', 0) == 0:
+            score -= 5
+            infra_penalty += 5
+            add_finding("INFO", "Email Infrastructure", "No MX mail server records detected.")
+        else:
+            add_finding("INFO", "Email Infrastructure", "No direct MX mail records (expected for primary redirect domains).")
 
     overall_score = max(0, min(100, score))
     spam_score = max(0, min(100, 100 - spam_penalty))
