@@ -1,0 +1,16 @@
+{
+    "actorKeyValueStoreSchemaVersion": 1,
+    "title": "Domain Vet Key-Value Store",
+    "description": "Visual Due Diligence audit dashboards and forensic reports generated during domain vetting",
+    "collections": {
+        "report": {
+            "title": "Due Diligence Dashboard",
+            "description": "Standalone interactive HTML executive audit report",
+            "key": "OUTPUT",
+            "contentTypes": [
+                "text/html"
+            ]
+        }
+    }
+}
+

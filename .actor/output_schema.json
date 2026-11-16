@@ -1,18 +1,18 @@
 {
     "actorOutputSchemaVersion": 1,
-    "title": "Domain Vet Audit Report",
-    "description": "Comprehensive domain availability and health audit with historical analysis",
+    "title": "Domain Vet Audit Output",
+    "description": "Executive Due Diligence visual dashboard and comprehensive machine-readable dataset",
     "properties": {
         "report": {
             "type": "string",
-            "title": "📊 Visual Audit Dashboard",
-            "description": "Interactive HTML report with domain availability status, health score, WHOIS info, SSL/DNS analysis, and historical timeline",
-            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT_REPORT"
+            "title": "Interactive Due Diligence Dashboard",
+            "description": "Standalone HTML visual report with health score, WHOIS profile, SSL/DNS records, email security, and historical archive timeline",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
         },
-        "data": {
+        "dataset": {
             "type": "string",
-            "title": "📋 Structured JSON Data",
-            "description": "Machine-readable audit data including availability status, scores, and all findings",
+            "title": "Structured Forensic Dataset",
+            "description": "Comprehensive structured domain metrics, risk findings, and historical snapshot data in JSON, CSV, or Excel format",
             "template": "{{links.apiDefaultDatasetUrl}}/items"
         }
     }

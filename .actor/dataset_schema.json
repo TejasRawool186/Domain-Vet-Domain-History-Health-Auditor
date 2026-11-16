@@ -1,19 +1,22 @@
 {
     "actorSpecification": 1,
     "title": "Domain Vet Audit Results",
-    "description": "Comprehensive domain audit data including safety score, WHOIS info, tech stack, and risk analysis",
+    "description": "Comprehensive domain due diligence records including health scores, WHOIS ownership, email security, PBN analysis, and historical forensics",
     "views": {
         "overview": {
-            "title": "Audit Overview",
+            "title": "Overview",
+            "description": "Key domain health indicators and verdict at a glance",
             "transformation": {
                 "fields": [
                     "domain",
                     "is_available",
                     "score",
                     "verdict",
-                    "current_owner",
-                    "registrar",
+                    "primary_niche",
                     "volatility",
+                    "topic_drift",
+                    "registrar",
+                    "creation_date",
                     "report_url"
                 ]
             },
@@ -25,8 +28,8 @@
                         "format": "text"
                     },
                     "is_available": {
-                        "label": "Available?",
-                        "format": "text"
+                        "label": "Available",
+                        "format": "boolean"
                     },
                     "score": {
                         "label": "Health Score",
@@ -36,20 +39,28 @@
                         "label": "Verdict",
                         "format": "text"
                     },
-                    "current_owner": {
-                        "label": "Current Owner",
-                        "format": "text"
-                    },
-                    "registrar": {
-                        "label": "Registrar",
+                    "primary_niche": {
+                        "label": "Primary Sector",
                         "format": "text"
                     },
                     "volatility": {
                         "label": "Volatility",
                         "format": "text"
                     },
+                    "topic_drift": {
+                        "label": "Topic Drift",
+                        "format": "text"
+                    },
+                    "registrar": {
+                        "label": "Registrar",
+                        "format": "text"
+                    },
+                    "creation_date": {
+                        "label": "Created",
+                        "format": "date"
+                    },
                     "report_url": {
-                        "label": "Report",
+                        "label": "Report URL",
                         "format": "link"
                     }
                 }
@@ -57,105 +68,440 @@
         }
     },
     "fields": {
-        "domain": {
-            "title": "Domain",
-            "type": "string",
-            "description": "The domain that was audited"
-        },
-        "score": {
-            "title": "Safety Score",
-            "type": "integer",
-            "description": "Safety confidence score from 0-100"
-        },
-        "verdict": {
-            "title": "Verdict",
-            "type": "string",
-            "description": "Final recommendation based on availability and health score"
-        },
-        "is_available": {
-            "title": "Domain Available",
-            "type": "boolean",
-            "description": "Whether the domain is available for purchase (true) or already registered (false)"
-        },
-        "is_registered": {
-            "title": "Domain Registered",
-            "type": "boolean",
-            "description": "Whether the domain is already registered and owned by someone"
-        },
-        "current_owner": {
-            "title": "Current Owner",
-            "type": "string",
-            "description": "Current owner/organization of the domain (if available from WHOIS)"
-        },
-        "registrar": {
-            "title": "Registrar",
-            "type": "string",
-            "description": "Domain registrar information"
-        },
-        "creation_date": {
-            "title": "Creation Date",
-            "type": "string",
-            "description": "Domain registration date"
-        },
-        "expiry_date": {
-            "title": "Expiry Date",
-            "type": "string",
-            "description": "Domain expiration date"
-        },
-        "days_until_expiry": {
-            "title": "Days Until Expiry",
-            "type": "integer",
-            "description": "Number of days until domain expires"
-        },
-        "tech_stack": {
-            "title": "Tech Stack",
-            "type": "array",
-            "description": "Historical technology stack detected"
-        },
-        "toxic_keywords_found": {
-            "title": "Toxic Keywords",
-            "type": "array",
-            "description": "List of toxic/spam keywords found in historical content"
-        },
-        "volatility": {
-            "title": "Volatility",
-            "type": "string",
-            "description": "Ownership volatility assessment: Low, Medium, High, or Unknown"
-        },
-        "snapshots_analyzed": {
-            "title": "Snapshots Analyzed",
-            "type": "integer",
-            "description": "Number of Archive.org snapshots analyzed"
-        },
-        "risk_reasons": {
-            "title": "Risk Reasons",
-            "type": "array",
-            "description": "List of identified risk factors affecting the safety score"
-        },
-        "ssl": {
-            "title": "SSL Status",
-            "type": "object",
-            "description": "SSL certificate analysis results"
-        },
-        "dns": {
-            "title": "DNS Info",
-            "type": "object",
-            "description": "DNS and MX record analysis"
-        },
-        "blacklist": {
-            "title": "Blacklist Status",
-            "type": "object",
-            "description": "DNSBL blacklist check results"
-        },
-        "redirects": {
-            "title": "Redirect Info",
-            "type": "object",
-            "description": "Redirect chain analysis"
-        },
-        "report_url": {
-            "title": "Report URL",
-            "type": "string",
-            "description": "URL to the full HTML audit report"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+            "domain": {
+                "type": "string",
+                "nullable": true,
+                "description": "The audited domain name",
+                "example": "example-startup.com"
+            },
+            "score": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Composite safety and forensic health score from 0 to 100",
+                "example": 88
+            },
+            "verdict": {
+                "type": "string",
+                "nullable": true,
+                "description": "Executive due diligence verdict and recommendation",
+                "example": "AVAILABLE - STRONG BUY (CLEAN RECORD)"
+            },
+            "is_available": {
+                "type": "boolean",
+                "nullable": true,
+                "description": "True if domain has no active WHOIS registration and is potentially available for registration",
+                "example": true
+            },
+            "is_registered": {
+                "type": "boolean",
+                "nullable": true,
+                "description": "True if domain is registered to an existing registrant",
+                "example": false
+            },
+            "current_owner": {
+                "type": "string",
+                "nullable": true,
+                "description": "Registrant organization or owner from WHOIS data",
+                "example": "Domain Holdings LLC"
+            },
+            "registrar": {
+                "type": "string",
+                "nullable": true,
+                "description": "Domain registrar of record",
+                "example": "NameCheap, Inc."
+            },
+            "creation_date": {
+                "type": "string",
+                "nullable": true,
+                "description": "Original domain registration date in YYYY-MM-DD format",
+                "example": "2018-05-12"
+            },
+            "expiry_date": {
+                "type": "string",
+                "nullable": true,
+                "description": "Domain expiration date in YYYY-MM-DD format",
+                "example": "2027-05-12"
+            },
+            "days_until_expiry": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Days remaining until registration expiration",
+                "example": 380
+            },
+            "volatility": {
+                "type": "string",
+                "nullable": true,
+                "description": "History continuity volatility rating (Low, Medium, High)",
+                "example": "Low"
+            },
+            "topic_drift": {
+                "type": "string",
+                "nullable": true,
+                "description": "Historical topical consistency rating across Wayback snapshots",
+                "example": "Low"
+            },
+            "primary_niche": {
+                "type": "string",
+                "nullable": true,
+                "description": "Classified business or content sector",
+                "example": "Technology & SaaS"
+            },
+            "tech_stack": {
+                "type": "array",
+                "nullable": true,
+                "description": "CMS platforms and frameworks detected in historical snapshots",
+                "items": {
+                    "type": "string"
+                },
+                "example": [
+                    "Next.js",
+                    "React"
+                ]
+            },
+            "toxic_keywords_found": {
+                "type": "array",
+                "nullable": true,
+                "description": "Spam, casino, adult, or counterfeit keywords discovered in historical content",
+                "items": {
+                    "type": "string"
+                },
+                "example": []
+            },
+            "snapshots_analyzed": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Number of Wayback Machine snapshots processed",
+                "example": 5
+            },
+            "risk_reasons": {
+                "type": "array",
+                "nullable": true,
+                "description": "Forensic findings, risk factors, and positive indicators",
+                "items": {
+                    "type": "string"
+                },
+                "example": [
+                    "[INFO] Clean record: No toxic keywords found in historical snapshots.",
+                    "[INFO] Valid SSL certificate issued by Let's Encrypt."
+                ]
+            },
+            "sub_scores": {
+                "type": "object",
+                "nullable": true,
+                "description": "Disaggregated category scores for spam, infrastructure, and stability",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "spam_score": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Content hygiene score (0-100)",
+                        "example": 95
+                    },
+                    "infrastructure_score": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "DNS, SSL, and email security posture score (0-100)",
+                        "example": 85
+                    },
+                    "stability_score": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Continuity, age, and topic stability score (0-100)",
+                        "example": 80
+                    }
+                },
+                "example": {
+                    "spam_score": 95,
+                    "infrastructure_score": 85,
+                    "stability_score": 80
+                }
+            },
+            "email_security": {
+                "type": "object",
+                "nullable": true,
+                "description": "Email deliverability and authentication posture (SPF, DMARC, DNSSEC)",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "has_spf": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Presence of SPF DNS TXT record",
+                        "example": true
+                    },
+                    "spf_policy": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "SPF enforcement policy (e.g., Soft Fail, Hard Fail)",
+                        "example": "Soft Fail (~all, Recommended)"
+                    },
+                    "has_dmarc": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Presence of DMARC DNS record",
+                        "example": true
+                    },
+                    "dmarc_policy": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Configured DMARC enforcement policy (reject, quarantine, none)",
+                        "example": "reject"
+                    },
+                    "has_dnssec": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Cryptographic DNSSEC signing status",
+                        "example": true
+                    },
+                    "score": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Email authentication score (0-100)",
+                        "example": 90
+                    },
+                    "status": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Security rating (Hardened, Basic Protection, Vulnerable)",
+                        "example": "Hardened"
+                    }
+                },
+                "example": {
+                    "has_spf": true,
+                    "spf_policy": "Soft Fail (~all, Recommended)",
+                    "has_dmarc": true,
+                    "dmarc_policy": "reject",
+                    "has_dnssec": true,
+                    "score": 90,
+                    "status": "Hardened"
+                }
+            },
+            "pbn_analysis": {
+                "type": "object",
+                "nullable": true,
+                "description": "Private Blog Network and parking page analysis",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "is_parked": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "True if domain parking signatures were identified",
+                        "example": false
+                    },
+                    "pbn_detected": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "True if automated link farm or PBN patterns were detected",
+                        "example": false
+                    },
+                    "risk_score": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "PBN risk score from 0 to 100",
+                        "example": 0
+                    }
+                },
+                "example": {
+                    "is_parked": false,
+                    "pbn_detected": false,
+                    "risk_score": 0
+                }
+            },
+            "foreign_injection": {
+                "type": "object",
+                "nullable": true,
+                "description": "Detection of hacked foreign script injections in historical archives",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "injected": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "True if foreign script injection was flagged",
+                        "example": false
+                    },
+                    "scripts": {
+                        "type": "array",
+                        "nullable": true,
+                        "description": "Identified non-native language scripts",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    }
+                },
+                "example": {
+                    "injected": false,
+                    "scripts": []
+                }
+            },
+            "ssl": {
+                "type": "object",
+                "nullable": true,
+                "description": "SSL/TLS certificate verification details",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "has_ssl": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Whether port 443 HTTPS is reachable",
+                        "example": true
+                    },
+                    "valid": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Whether the certificate is valid and trusted",
+                        "example": true
+                    },
+                    "issuer": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Certificate authority / issuer organization",
+                        "example": "Let's Encrypt"
+                    },
+                    "expires": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Certificate expiration date (YYYY-MM-DD)",
+                        "example": "2026-08-15"
+                    },
+                    "error": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Error details if certificate check failed",
+                        "example": null
+                    }
+                },
+                "example": {
+                    "has_ssl": true,
+                    "valid": true,
+                    "issuer": "Let's Encrypt",
+                    "expires": "2026-08-15",
+                    "error": null
+                }
+            },
+            "dns": {
+                "type": "object",
+                "nullable": true,
+                "description": "DNS records resolution summary",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "has_a_record": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Presence of active A records",
+                        "example": true
+                    },
+                    "has_mx_record": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Presence of active MX email records",
+                        "example": true
+                    },
+                    "nameservers": {
+                        "type": "array",
+                        "nullable": true,
+                        "description": "Authoritative nameservers",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            "ns1.cloudflare.com",
+                            "ns2.cloudflare.com"
+                        ]
+                    }
+                },
+                "example": {
+                    "has_a_record": true,
+                    "has_mx_record": true,
+                    "nameservers": [
+                        "ns1.cloudflare.com",
+                        "ns2.cloudflare.com"
+                    ]
+                }
+            },
+            "blacklist": {
+                "type": "object",
+                "nullable": true,
+                "description": "DNSBL spam blacklist check results",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "listed": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "True if domain or IP was flagged on any blacklist",
+                        "example": false
+                    },
+                    "count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Number of blacklists flagging the domain/IP",
+                        "example": 0
+                    },
+                    "sources": {
+                        "type": "array",
+                        "nullable": true,
+                        "description": "Specific blacklist databases flagging the domain",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": []
+                    }
+                },
+                "example": {
+                    "listed": false,
+                    "count": 0,
+                    "sources": []
+                }
+            },
+            "redirects": {
+                "type": "object",
+                "nullable": true,
+                "description": "HTTP redirect chain analysis",
+                "required": [],
+                "additionalProperties": true,
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Number of redirect hops",
+                        "example": 1
+                    },
+                    "suspicious": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "True if excessive hops or cross-domain redirects were detected",
+                        "example": false
+                    },
+                    "final_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Final destination URL after redirects",
+                        "example": "https://example-startup.com/"
+                    }
+                },
+                "example": {
+                    "count": 1,
+                    "suspicious": false,
+                    "final_url": "https://example-startup.com/"
+                }
+            },
+            "report_url": {
+                "type": "string",
+                "nullable": true,
+                "description": "Public URL to the interactive Due Diligence HTML report in Apify Key-Value Store",
+                "example": "https://api.apify.com/v2/key-value-stores/default/records/OUTPUT"
+            }
         }
     }
 }

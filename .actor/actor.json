@@ -2,15 +2,17 @@
     "actorSpecification": 1,
     "name": "domain-vet",
     "title": "Domain Vet - Domain History & Health Auditor",
-    "description": "Automated due-diligence agent that investigates domain history using Wayback Machine and WHOIS to generate a 'Buy or Pass' Audit Report.",
-    "version": "1.0.0",
+    "description": "Enterprise due diligence agent that audits domain history via Wayback Machine, WHOIS, DNSBL blacklists, SSL, email security (SPF/DMARC), and PBN footprints to generate an executive Due Diligence report.",
+    "version": "1.1.0",
     "meta": {
-        "templateId": "python-start"
+        "templateId": "python-start",
+        "generatedBy": "Antigravity with Gemini 3.8 Flash"
     },
-    "input": "./input_schema.json",
-    "output": "./output_schema.json",
+    "inputSchema": "./input_schema.json",
+    "outputSchema": "./output_schema.json",
     "storages": {
-        "dataset": "./dataset_schema.json"
+        "dataset": "./dataset_schema.json",
+        "keyValueStore": "./key_value_store_schema.json"
     },
     "dockerfile": "../Dockerfile"
 }

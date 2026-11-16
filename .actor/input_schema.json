@@ -1,25 +1,67 @@
 {
-    "title": "Domain Vet Input",
+    "title": "Domain Vet - Domain History & Health Auditor Input",
     "type": "object",
     "schemaVersion": 1,
     "properties": {
         "domain": {
-            "title": "Domain Name",
+            "title": "Domain name",
             "type": "string",
-            "description": "The domain to audit (e.g. my-startup.com)",
+            "description": "Domain name to audit (e.g., example.com, star.ai, stripe.com). Protocol prefixes (http/https) and trailing slashes are automatically sanitized.",
             "editor": "textfield",
-            "prefill": "star.ai"
+            "prefill": "star.ai",
+            "sectionCaption": "Target Domain",
+            "sectionDescription": "Specify the domain to undergo forensic history and health analysis"
         },
         "sensitivity": {
-            "title": "Spam Sensitivity",
+            "title": "Spam detection sensitivity",
             "type": "string",
+            "description": "Strictness of toxic, gambling, pharmaceutical, and spam keyword detection across archive.org records.",
+            "editor": "select",
+            "default": "Medium",
             "enum": [
                 "Low",
                 "Medium",
                 "High"
             ],
-            "default": "Medium",
-            "description": "How strict should the spam word detection be?"
+            "enumTitles": [
+                "Low (Conservative)",
+                "Medium (Balanced)",
+                "High (Strict / Zero Tolerance)"
+            ],
+            "sectionCaption": "Audit Scope & Sensitivity",
+            "sectionDescription": "Configure historical snapshot sampling and forensic sensitivity thresholds"
+        },
+        "maxSnapshots": {
+            "title": "Historical snapshots limit",
+            "type": "integer",
+            "description": "Maximum number of archive.org snapshots sampled across the domain's chronological timeline.",
+            "default": 5,
+            "minimum": 2,
+            "maximum": 10,
+            "unit": "snapshots"
+        },
+        "checkEmailSecurity": {
+            "title": "Audit email security (SPF/DMARC)",
+            "type": "boolean",
+            "description": "Inspect SPF and DMARC DNS policies to assess sender spoofing resilience and Google/Yahoo sender policy compliance.",
+            "default": true
+        },
+        "checkPbnFootprint": {
+            "title": "Detect PBN & parking footprint",
+            "type": "boolean",
+            "description": "Analyze historical archive HTML and nameservers for domain parking services, expired domain holding pages, and PBN link networks.",
+            "default": true
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Apify Proxy or custom proxies to bypass rate-limiting when querying external archive and WHOIS sources.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": false
+            },
+            "sectionCaption": "Proxy Settings",
+            "sectionDescription": "Configure proxies to ensure unthrottled access to Wayback Machine and DNS endpoints"
         }
     },
     "required": [
