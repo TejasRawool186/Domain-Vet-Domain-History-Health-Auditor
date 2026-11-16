@@ -1,16 +1,18 @@
 """
-auditor.py - The Brain
-Handles forensic analysis: toxic word scanning, safety scoring, tech detection,
-DNSBL checks, SSL analysis, and redirect chain detection.
+auditor.py - Forensic Engine & Health Analysis
+Handles forensic analysis: toxic word scanning, safety scoring, tech stack detection,
+DNSBL blacklist checks, SSL analysis, DNS & email security (SPF/DMARC/DNSSEC),
+PBN/parking footprints, foreign script injection, and historical topic drift.
+Zero unicode emojis in audit findings and terminal logs.
 """
 import re
 import ssl
 import socket
-import dns.resolver
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
+import dns.resolver
 
-# Red Flags that ruin a domain's reputation
+# Core toxic keywords that indicate spam, gambling, or illicit operations
 TOXIC_KEYWORDS = [
     "casino", "poker", "betting", "viagra", "cialis", "loans", 
     "replica", "watches", "adult", "xxx", "crypto", "giveaway"
@@ -20,7 +22,23 @@ TOXIC_KEYWORDS = [
 TOXIC_KEYWORDS_EXTENDED = TOXIC_KEYWORDS + [
     "gambling", "pharma", "pills", "cheap", "discount", "prize",
     "winner", "lottery", "forex", "binary", "trading", "escort",
-    "payday", "debt", "weight loss", "diet pills", "miracle"
+    "payday", "debt", "weight loss", "diet pills", "miracle",
+    "slots", "roulette", "baccarat", "jackpot", "counterfeit"
+]
+
+# Signatures indicating domain parking, broker sale pages, or ad arbitrage
+PARKING_SIGNATURES = [
+    "bodis.com", "sedoparking", "parkingcrew", "afternic.com",
+    "hugedomains.com", "dan.com", "undeveloped.com", "cashparking",
+    "domain is for sale", "buy this domain", "inquire about this domain",
+    "this domain may be for sale", "parked free, courtesy of", "godaddy domain broker",
+    "related searches", "find what you are looking for", "this web page is parked FREE"
+]
+
+# Signatures for Private Blog Networks (PBNs) and automated link farms
+PBN_PATTERNS = [
+    "casino-link", "pbn-theme", "gambling links", "sponsored post directory",
+    "article submission directory", "powered by auto-blog", "wpmudev-directory"
 ]
 
 # Tech detection patterns
@@ -42,98 +60,39 @@ TECH_PATTERNS = {
     "Django": ["csrfmiddlewaretoken", "django"]
 }
 
+# Industry / Niche classification definitions
+NICHE_RULES = {
+    "Technology & SaaS": ["software", "api", "cloud", "developer", "platform", "app", "analytics", "saas", "database", "ai model"],
+    "Finance & Web3": ["finance", "banking", "investment", "loan", "fintech", "stock", "portfolio", "wallet", "ledger", "trading"],
+    "E-Commerce & Retail": ["cart", "checkout", "shipping", "shop", "store", "product", "catalog", "order", "price", "discount"],
+    "Health & Medicine": ["medical", "clinic", "health", "doctor", "therapy", "wellness", "hospital", "patient", "dental", "care"],
+    "Media & News": ["news", "magazine", "editorial", "journalism", "article", "author", "podcast", "broadcast", "press"],
+    "Real Estate": ["property", "realty", "estate", "realtor", "home", "listing", "mortgage", "apartment", "residential"],
+    "Gambling & Casino": ["casino", "slots", "bet", "poker", "roulette", "jackpot", "sportsbook", "wagering", "bonus spin"],
+    "Adult Content": ["adult", "xxx", "porn", "escort", "dating", "fetish", "sensual"],
+    "Parked & Resale": ["domain is for sale", "buy this domain", "parked free", "inquire about this domain", "afternic", "dan.com"]
+}
 
-def calculate_safety_score(whois_data, audit_log):
+
+def get_dns_resolver(timeout=5):
     """
-    Calculate overall safety score based on WHOIS data and audit findings.
-    Returns a tuple of (score, list of reasons).
+    Get configured DNS resolver with resilient fallback nameservers.
     """
-    score = 100
-    reasons = []
-
-    # 1. Age Factor
-    if whois_data and hasattr(whois_data, 'creation_date') and whois_data.creation_date:
-        try:
-            now = datetime.now()
-            c_date = whois_data.creation_date
-            if isinstance(c_date, list):
-                c_date = c_date[0]
-            
-            if hasattr(c_date, 'tzinfo') and c_date.tzinfo is not None:
-                from datetime import timezone
-                now = datetime.now(timezone.utc)
-            
-            age_years = (now - c_date).days / 365
-            if age_years < 1:
-                score -= 10
-                reasons.append("⚠️ Domain is very young (< 1 year)")
-            elif age_years < 2:
-                score -= 5
-                reasons.append("⚠️ Domain is relatively new (< 2 years)")
-        except Exception:
-            pass
-    
-    # 2. Spam History
-    if audit_log.get('toxic_count', 0) > 0:
-        penalty = audit_log['toxic_count'] * 15
-        score -= penalty
-        toxic_words = audit_log.get('toxic_words', [])
-        if toxic_words:
-            reasons.append(f"🚨 Found {audit_log['toxic_count']} instances of toxic content: {', '.join(toxic_words)}")
-        else:
-            reasons.append(f"🚨 Found {audit_log['toxic_count']} instances of toxic content.")
-
-    # 3. Volatility (Gaps in history)
-    if audit_log.get('volatility') == 'High':
-        score -= 20
-        reasons.append("⚠️ High Volatility: Domain likely dropped/reset multiple times.")
-    elif audit_log.get('volatility') == 'Medium':
-        score -= 10
-        reasons.append("⚠️ Medium Volatility: Some gaps detected in domain history.")
-
-    # 4. Tech stack changes
-    if audit_log.get('tech_changes', 0) > 2:
-        score -= 10
-        reasons.append("⚠️ Multiple tech stack changes detected - potential compromise indicator.")
-
-    # 5. DNSBL listing
-    if audit_log.get('blacklisted', False):
-        score -= 30
-        blacklist_count = audit_log.get('blacklist_count', 0)
-        reasons.append(f"🛑 Domain/IP listed on {blacklist_count} spam blacklist(s).")
-
-    # 6. SSL Issues
-    ssl_status = audit_log.get('ssl_status', {})
-    if ssl_status.get('error'):
-        score -= 10
-        reasons.append(f"🔓 SSL Issue: {ssl_status.get('error')}")
-    elif ssl_status.get('days_until_expiry', 365) < 30:
-        score -= 5
-        reasons.append(f"⚠️ SSL certificate expires in {ssl_status.get('days_until_expiry')} days")
-
-    # 7. Domain Expiry Warning
-    if audit_log.get('domain_expiring_soon', False):
-        score -= 15
-        days_left = audit_log.get('days_until_domain_expiry', 0)
-        reasons.append(f"⚠️ Domain expires in {days_left} days - potential drop indicator!")
-
-    # 8. Redirect Chain Issues
-    if audit_log.get('redirect_count', 0) > 3:
-        score -= 10
-        reasons.append(f"⚠️ Suspicious redirect chain detected ({audit_log.get('redirect_count')} redirects)")
-
-    # 9. No MX Records
-    if audit_log.get('no_mx_records', False):
-        score -= 5
-        reasons.append("📧 No email (MX) records found - domain may not be actively used")
-
-    return max(0, score), reasons
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = timeout
+    resolver.lifetime = timeout
+    try:
+        if not resolver.nameservers:
+            resolver.nameservers = ['8.8.8.8', '1.1.1.1', '9.9.9.9']
+    except Exception:
+        resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+    return resolver
 
 
 def scan_text_for_toxins(html_text, sensitivity="Medium"):
     """
     Scan HTML text for toxic keywords.
-    Returns list of found bad words based on sensitivity level.
+    Returns unique list of found bad words based on sensitivity level.
     """
     found = []
     if not html_text:
@@ -152,7 +111,7 @@ def scan_text_for_toxins(html_text, sensitivity="Medium"):
         if re.search(pattern, text_lower):
             found.append(word)
     
-    return list(set(found))
+    return sorted(list(set(found)))
 
 
 def detect_tech_stack(html_text):
@@ -173,9 +132,164 @@ def detect_tech_stack(html_text):
     return "Static/Custom"
 
 
+def detect_foreign_script_injection(html_text, domain):
+    """
+    Detect foreign language script injections (Japanese, Chinese, Cyrillic)
+    typically used in expired domain SEO doorway attacks on Western domains.
+    """
+    if not html_text:
+        return {"injected": False, "scripts": [], "ratio": 0.0}
+    
+    # Strip HTML tags
+    clean_text = re.sub(r'<[^>]+>', ' ', html_text)
+    total_len = len(clean_text.strip())
+    if total_len < 100:
+        return {"injected": False, "scripts": [], "ratio": 0.0}
+    
+    scripts = []
+    cjk_matches = len(re.findall(r'[\u4e00-\u9fff\u3040-\u30ff]', clean_text))
+    cyrillic_matches = len(re.findall(r'[\u0400-\u04ff]', clean_text))
+    arabic_matches = len(re.findall(r'[\u0600-\u06ff]', clean_text))
+    
+    ratio = (cjk_matches + cyrillic_matches + arabic_matches) / float(total_len)
+    
+    if cjk_matches > 40:
+        scripts.append("East Asian (Chinese/Japanese)")
+    if cyrillic_matches > 40:
+        scripts.append("Cyrillic")
+    if arabic_matches > 40:
+        scripts.append("Arabic")
+        
+    is_injected = (len(scripts) > 0 and ratio > 0.05)
+    return {
+        "injected": is_injected,
+        "scripts": scripts,
+        "ratio": round(ratio, 4)
+    }
+
+
+def classify_content_niche(html_text):
+    """
+    Classify HTML content into an industry niche based on keyword density.
+    """
+    if not html_text:
+        return "Uncategorized"
+    
+    clean_text = re.sub(r'<[^>]+>', ' ', html_text).lower()
+    scores = {}
+    
+    for niche, keywords in NICHE_RULES.items():
+        score = 0
+        for kw in keywords:
+            score += len(re.findall(r'\b' + re.escape(kw) + r'\b', clean_text))
+        if score > 0:
+            scores[niche] = score
+            
+    if not scores:
+        return "General / Portfolio"
+    
+    best_niche = max(scores.items(), key=lambda x: x[1])
+    return best_niche[0] if best_niche[1] >= 2 else "General / Portfolio"
+
+
+def detect_pbn_and_parking(snapshots, dns_result=None):
+    """
+    Inspect snapshots and nameservers for domain parking signatures and PBN patterns.
+    """
+    parking_dates = []
+    pbn_indicators = []
+    
+    # Check DNS nameservers for known parking providers
+    nameservers = (dns_result or {}).get('nameservers', [])
+    for ns in nameservers:
+        ns_lower = ns.lower()
+        for p_sig in PARKING_SIGNATURES:
+            if p_sig in ns_lower:
+                parking_dates.append(f"Current DNS ({ns})")
+                break
+                
+    for snap in snapshots:
+        html = snap.get('raw_html', '') or snap.get('text', '') or ''
+        html_lower = html.lower()
+        date = snap.get('date', 'Unknown')
+        
+        # Check parking
+        for sig in PARKING_SIGNATURES:
+            if sig in html_lower:
+                parking_dates.append(f"{date} (Signature: {sig})")
+                break
+                
+        # Check PBN
+        for pat in PBN_PATTERNS:
+            if pat in html_lower:
+                pbn_indicators.append(f"{date}: Detected {pat}")
+                
+    is_parked = len(parking_dates) > 0
+    pbn_detected = len(pbn_indicators) > 0
+    
+    pbn_risk_score = 0
+    if is_parked:
+        pbn_risk_score += 35
+    if pbn_detected:
+        pbn_risk_score += 45
+        
+    return {
+        "is_parked": is_parked,
+        "parking_events": parking_dates,
+        "pbn_detected": pbn_detected,
+        "pbn_indicators": pbn_indicators,
+        "pbn_risk_score": min(100, pbn_risk_score)
+    }
+
+
+def analyze_topic_drift(snapshots):
+    """
+    Analyze historical topic drift across snapshots.
+    A domain jumping across disparate sectors indicates dropped domain acquisition
+    or SEO PBN repurposing.
+    """
+    if not snapshots or len(snapshots) < 2:
+        return {
+            "drift_level": "Low",
+            "drift_score": 0,
+            "niches_detected": ["Single Era / Insufficient Snapshots"],
+            "description": "Consistent niche profile or insufficient historical snapshots."
+        }
+    
+    niches = []
+    for s in snapshots:
+        n = s.get('niche')
+        if n and n != "Uncategorized":
+            niches.append(n)
+            
+    unique_niches = list(dict.fromkeys(niches))
+    drift_count = len(unique_niches)
+    
+    if drift_count >= 3:
+        drift_level = "High"
+        drift_score = 75
+        desc = "High topic volatility: Domain shifted across 3+ distinct business sectors over its history."
+    elif drift_count == 2:
+        drift_level = "Moderate"
+        drift_score = 35
+        desc = "Moderate topic shift detected across historical snapshots."
+    else:
+        drift_level = "Low"
+        drift_score = 10
+        desc = "Stable topical focus maintained across historical records."
+        
+    return {
+        "drift_level": drift_level,
+        "drift_score": drift_score,
+        "niches_detected": unique_niches or ["General"],
+        "description": desc
+    }
+
+
 def calculate_volatility(snapshots, creation_date):
     """
-    Calculate domain volatility based on archive snapshots and creation date.
+    Calculate domain volatility based on archive snapshot continuity and creation date.
+    Long multi-year gaps suggest domain dropping and re-registration cycles.
     """
     if not snapshots:
         return "Unknown"
@@ -191,7 +305,7 @@ def calculate_volatility(snapshots, creation_date):
             date1 = datetime.strptime(snapshots[i-1]['date'], '%Y-%m-%d')
             date2 = datetime.strptime(snapshots[i]['date'], '%Y-%m-%d')
             gap_days = abs((date2 - date1).days)
-            if gap_days > 730:
+            if gap_days > 730:  # Gap of 2+ years
                 gaps += 1
         except (ValueError, KeyError):
             continue
@@ -203,40 +317,46 @@ def calculate_volatility(snapshots, creation_date):
     return "Low"
 
 
-def check_dnsbl(domain):
+async def check_dnsbl(domain):
     """
-    Check if domain/IP is listed on DNS blacklists using pydnsbl.
-    Returns dict with blacklist status.
+    Check if domain or resolved IP is listed on DNS blacklists using pydnsbl.
     """
     result = {
         'blacklisted': False,
         'blacklist_count': 0,
-        'blacklists': []
+        'blacklists': [],
+        'ip': None,
+        'error': None
     }
     
     try:
         from pydnsbl import DNSBLIpChecker, DNSBLDomainChecker
         
-        # Check domain
         domain_checker = DNSBLDomainChecker()
-        domain_result = domain_checker.check(domain)
+        if hasattr(domain_checker, 'check_async'):
+            domain_result = await domain_checker.check_async(domain)
+        else:
+            domain_result = domain_checker.check(domain)
         
         if domain_result.blacklisted:
             result['blacklisted'] = True
             result['blacklist_count'] = len(domain_result.detected_by)
             result['blacklists'] = list(domain_result.detected_by.keys())
         
-        # Also try to resolve and check IP
         try:
             ip = socket.gethostbyname(domain)
+            result['ip'] = ip
             ip_checker = DNSBLIpChecker()
-            ip_result = ip_checker.check(ip)
+            if hasattr(ip_checker, 'check_async'):
+                ip_result = await ip_checker.check_async(ip)
+            else:
+                ip_result = ip_checker.check(ip)
             
             if ip_result.blacklisted:
                 result['blacklisted'] = True
                 result['blacklist_count'] += len(ip_result.detected_by)
                 result['blacklists'].extend(list(ip_result.detected_by.keys()))
-                result['ip'] = ip
+                result['blacklists'] = list(set(result['blacklists']))
         except socket.gaierror:
             pass
             
@@ -248,8 +368,7 @@ def check_dnsbl(domain):
 
 def check_ssl_certificate(domain):
     """
-    Check SSL certificate validity and expiration.
-    Returns dict with SSL status.
+    Check SSL certificate validity, issuer, and expiration date.
     """
     result = {
         'has_ssl': False,
@@ -265,32 +384,28 @@ def check_ssl_certificate(domain):
         with socket.create_connection((domain, 443), timeout=10) as sock:
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
                 cert = ssock.getpeercert()
-                
                 result['has_ssl'] = True
                 result['valid'] = True
                 
-                # Get issuer
                 issuer = dict(x[0] for x in cert.get('issuer', []))
-                result['issuer'] = issuer.get('organizationName', 'Unknown')
+                result['issuer'] = issuer.get('organizationName', issuer.get('commonName', 'Unknown Issuer'))
                 
-                # Get expiration
                 not_after = cert.get('notAfter')
                 if not_after:
-                    # Parse SSL date format: 'Mar 15 12:00:00 2025 GMT'
                     expires = datetime.strptime(not_after, '%b %d %H:%M:%S %Y %Z')
                     result['expires'] = expires.strftime('%Y-%m-%d')
                     result['days_until_expiry'] = (expires - datetime.now()).days
                     
-    except ssl.SSLCertVerificationError as e:
+    except ssl.SSLCertVerificationError:
         result['has_ssl'] = True
         result['valid'] = False
         result['error'] = "Invalid or self-signed certificate"
     except socket.timeout:
-        result['error'] = "Connection timeout"
+        result['error'] = "SSL connection timeout"
     except ConnectionRefusedError:
-        result['error'] = "HTTPS not available (port 443 closed)"
+        result['error'] = "Port 443 closed (HTTPS not active)"
     except socket.gaierror:
-        result['error'] = "Domain does not resolve"
+        result['error'] = "Domain DNS does not resolve"
     except Exception as e:
         result['error'] = str(e)
     
@@ -299,8 +414,7 @@ def check_ssl_certificate(domain):
 
 def check_dns_records(domain):
     """
-    Check DNS and MX records for the domain.
-    Returns dict with DNS analysis.
+    Check DNS A, MX, TXT, and NS records for the domain.
     """
     result = {
         'has_a_record': False,
@@ -309,39 +423,42 @@ def check_dns_records(domain):
         'a_records': [],
         'mx_records': [],
         'txt_records': [],
-        'nameservers': []
+        'nameservers': [],
+        'error': None
     }
+    
+    resolver = get_dns_resolver(timeout=5)
     
     try:
         # A Records
         try:
-            answers = dns.resolver.resolve(domain, 'A')
+            answers = resolver.resolve(domain, 'A')
             result['has_a_record'] = True
             result['a_records'] = [str(rdata) for rdata in answers]
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        except Exception:
             pass
         
         # MX Records
         try:
-            answers = dns.resolver.resolve(domain, 'MX')
+            answers = resolver.resolve(domain, 'MX')
             result['has_mx_record'] = True
-            result['mx_records'] = [str(rdata.exchange) for rdata in answers]
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            result['mx_records'] = [str(rdata.exchange).rstrip('.') for rdata in answers]
+        except Exception:
             pass
         
-        # TXT Records (SPF, DKIM, etc.)
+        # TXT Records
         try:
-            answers = dns.resolver.resolve(domain, 'TXT')
+            answers = resolver.resolve(domain, 'TXT')
             result['has_txt_record'] = True
-            result['txt_records'] = [str(rdata) for rdata in answers][:3]  # Limit to 3
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            result['txt_records'] = [str(rdata) for rdata in answers][:5]
+        except Exception:
             pass
         
         # Nameservers
         try:
-            answers = dns.resolver.resolve(domain, 'NS')
-            result['nameservers'] = [str(rdata) for rdata in answers]
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            answers = resolver.resolve(domain, 'NS')
+            result['nameservers'] = [str(rdata).rstrip('.') for rdata in answers]
+        except Exception:
             pass
             
     except Exception as e:
@@ -350,10 +467,109 @@ def check_dns_records(domain):
     return result
 
 
+def check_email_security(domain):
+    """
+    Audit SPF, DMARC, and DNSSEC records. Evaluates compliance with modern
+    Google/Yahoo sender requirements and email spoofing resilience.
+    """
+    result = {
+        'has_spf': False,
+        'spf_record': None,
+        'spf_policy': None,
+        'has_dmarc': False,
+        'dmarc_record': None,
+        'dmarc_policy': None,
+        'has_dnssec': False,
+        'email_security_score': 0,
+        'status': 'Vulnerable',
+        'details': []
+    }
+    
+    resolver = get_dns_resolver(timeout=5)
+    
+    # 1. SPF Inspection
+    try:
+        answers = resolver.resolve(domain, 'TXT')
+        for rdata in answers:
+            txt_str = "".join([b.decode('utf-8', errors='ignore') if isinstance(b, bytes) else str(b) for b in rdata.strings])
+            if txt_str.startswith('v=spf1'):
+                result['has_spf'] = True
+                result['spf_record'] = txt_str
+                if '-all' in txt_str:
+                    result['spf_policy'] = 'Hard Fail (-all, Strict)'
+                elif '~all' in txt_str:
+                    result['spf_policy'] = 'Soft Fail (~all, Recommended)'
+                elif '?all' in txt_str:
+                    result['spf_policy'] = 'Neutral (?all)'
+                elif '+all' in txt_str:
+                    result['spf_policy'] = 'Permissive (+all, Insecure)'
+                break
+    except Exception:
+        pass
+
+    # 2. DMARC Inspection
+    try:
+        dmarc_domain = f"_dmarc.{domain}"
+        answers = resolver.resolve(dmarc_domain, 'TXT')
+        for rdata in answers:
+            txt_str = "".join([b.decode('utf-8', errors='ignore') if isinstance(b, bytes) else str(b) for b in rdata.strings])
+            if 'v=DMARC1' in txt_str or 'v=dmarc1' in txt_str:
+                result['has_dmarc'] = True
+                result['dmarc_record'] = txt_str
+                match = re.search(r'\bp=([a-zA-Z]+)', txt_str)
+                if match:
+                    result['dmarc_policy'] = match.group(1).lower()
+                break
+    except Exception:
+        pass
+
+    # 3. DNSSEC Inspection
+    try:
+        resolver.resolve(domain, 'DNSKEY')
+        result['has_dnssec'] = True
+    except Exception:
+        result['has_dnssec'] = False
+
+    # Score calculation
+    score = 0
+    if result['has_spf']:
+        score += 40
+        if result['spf_policy'] in ['Hard Fail (-all, Strict)', 'Soft Fail (~all, Recommended)']:
+            score += 10
+            result['details'].append("Valid SPF policy detected")
+    else:
+        result['details'].append("Missing SPF record (email spoofing risk)")
+        
+    if result['has_dmarc']:
+        score += 40
+        if result['dmarc_policy'] in ['reject', 'quarantine']:
+            score += 10
+            result['details'].append(f"Enforced DMARC policy (p={result['dmarc_policy']})")
+        else:
+            result['details'].append(f"DMARC monitor-only policy (p={result['dmarc_policy']})")
+    else:
+        result['details'].append("Missing DMARC policy (fails modern sender verification)")
+        
+    if result['has_dnssec']:
+        score = min(100, score + 10)
+        result['details'].append("DNSSEC cryptographically active")
+    else:
+        result['details'].append("DNSSEC not enabled")
+
+    result['email_security_score'] = score
+    if score >= 80:
+        result['status'] = 'Hardened'
+    elif score >= 40:
+        result['status'] = 'Basic Protection'
+    else:
+        result['status'] = 'Vulnerable'
+
+    return result
+
+
 def check_domain_expiry(whois_data):
     """
     Check if domain is expiring soon from WHOIS data.
-    Returns dict with expiry analysis.
     """
     result = {
         'expiring_soon': False,
@@ -378,17 +594,15 @@ def check_domain_expiry(whois_data):
             
             if days_left < 90:
                 result['expiring_soon'] = True
-                
     except Exception:
         pass
     
     return result
 
 
-def check_redirect_chain(domain):
+def check_redirect_chain(domain, proxies=None):
     """
-    Check for redirect chains that might indicate malicious behavior.
-    Returns dict with redirect analysis.
+    Check for redirect chains that might indicate cloak redirecting or domain hijacks.
     """
     import requests
     
@@ -396,16 +610,20 @@ def check_redirect_chain(domain):
         'redirect_count': 0,
         'final_url': None,
         'redirect_chain': [],
-        'suspicious': False
+        'suspicious': False,
+        'domain_changed': False,
+        'error': None
     }
     
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    
     try:
-        # Follow redirects manually to track the chain
         response = requests.get(
             f"https://{domain}",
             timeout=10,
             allow_redirects=True,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers=headers,
+            proxies=proxies
         )
         
         result['redirect_count'] = len(response.history)
@@ -417,11 +635,9 @@ def check_redirect_chain(domain):
                 'url': r.url
             })
         
-        # Check for suspicious patterns
         if result['redirect_count'] > 3:
             result['suspicious'] = True
         
-        # Check if final domain is completely different
         original_domain = domain.lower().replace('www.', '')
         final_domain = urlparse(response.url).netloc.lower().replace('www.', '')
         
@@ -430,18 +646,18 @@ def check_redirect_chain(domain):
             result['domain_changed'] = True
             
     except requests.exceptions.SSLError:
-        # Try HTTP if HTTPS fails
         try:
             response = requests.get(
                 f"http://{domain}",
                 timeout=10,
                 allow_redirects=True,
-                headers={'User-Agent': 'Mozilla/5.0'}
+                headers=headers,
+                proxies=proxies
             )
             result['redirect_count'] = len(response.history)
             result['final_url'] = response.url
-        except Exception:
-            result['error'] = "Could not connect"
+        except Exception as e:
+            result['error'] = str(e)
     except Exception as e:
         result['error'] = str(e)
     
@@ -450,18 +666,7 @@ def check_redirect_chain(domain):
 
 def check_domain_availability(whois_data, domain):
     """
-    Check if the domain is already registered or available for purchase.
-    Returns dict with availability analysis.
-    
-    A domain is considered REGISTERED (not available) if:
-    - WHOIS has valid creation_date
-    - WHOIS has valid registrar info
-    - WHOIS has registrant/owner info
-    - Domain resolves to an IP (has active DNS)
-    
-    A domain is considered AVAILABLE (can be purchased) if:
-    - WHOIS lookup returns no data
-    - Domain status indicates it's available
+    Check if the domain is registered or available for purchase.
     """
     result = {
         'is_registered': False,
@@ -469,76 +674,235 @@ def check_domain_availability(whois_data, domain):
         'owner': None,
         'registrar': None,
         'status': [],
-        'reason': None
+        'reason': None,
+        'error': None
     }
     
     try:
-        # Check 1: WHOIS data presence
         if whois_data:
-            # Check for valid registration indicators
             has_creation_date = False
             has_registrar = False
-            has_owner = False
             
-            # Check creation date
             if hasattr(whois_data, 'creation_date') and whois_data.creation_date:
                 has_creation_date = True
             
-            # Check registrar
             if hasattr(whois_data, 'registrar') and whois_data.registrar:
                 has_registrar = True
                 result['registrar'] = whois_data.registrar
             
-            # Check for owner/registrant info
             if hasattr(whois_data, 'name') and whois_data.name:
-                has_owner = True
                 result['owner'] = whois_data.name
             elif hasattr(whois_data, 'org') and whois_data.org:
-                has_owner = True
                 result['owner'] = whois_data.org
             elif hasattr(whois_data, 'registrant_name') and whois_data.registrant_name:
-                has_owner = True
                 result['owner'] = whois_data.registrant_name
             
-            # Check domain status
             if hasattr(whois_data, 'status') and whois_data.status:
                 status = whois_data.status
                 if isinstance(status, list):
-                    result['status'] = status[:3]  # First 3 statuses
+                    result['status'] = [str(s) for s in status[:3]]
                 else:
-                    result['status'] = [status]
+                    result['status'] = [str(status)]
             
-            # Domain is registered if it has creation date OR registrar
             if has_creation_date or has_registrar:
                 result['is_registered'] = True
                 result['is_available'] = False
-                result['reason'] = "Domain has valid WHOIS registration data"
+                result['reason'] = "Domain has active WHOIS registration record"
             else:
                 result['is_available'] = True
-                result['reason'] = "No valid registration data found"
+                result['reason'] = "No valid registration record found in WHOIS"
         else:
-            # No WHOIS data - domain might be available
             result['is_available'] = True
-            result['reason'] = "WHOIS lookup returned no data"
+            result['reason'] = "WHOIS query returned no registration data"
         
-        # Check 2: DNS resolution as additional indicator
         try:
-            import socket
             ip = socket.gethostbyname(domain)
             if ip and result['is_available']:
-                # Domain resolves but has no WHOIS - unusual, mark as registered
                 result['is_registered'] = True
                 result['is_available'] = False
-                result['reason'] = "Domain resolves to IP - likely registered"
+                result['reason'] = "Domain actively resolves to IP address"
         except socket.gaierror:
-            # Domain doesn't resolve - could be available or just parked
             pass
             
     except Exception as e:
         result['error'] = str(e)
-        # Default to registered for safety (avoid false "available" claims)
         result['is_registered'] = True
         result['is_available'] = False
-        result['reason'] = f"Could not determine availability: {e}"
+        result['reason'] = f"Could not ascertain availability reliably: {e}"
     
     return result
+
+
+def calculate_safety_score(whois_data, audit_data):
+    """
+    Calculate comprehensive safety and forensic scores.
+    Returns:
+    - overall_score (int): 0-100
+    - sub_scores (dict): spam_score, infrastructure_score, stability_score
+    - findings (list of str): Clean enterprise finding descriptions without unicode emojis
+    - structured_findings (list of dict): With severity, category, and message
+    """
+    score = 100
+    findings = []
+    structured_findings = []
+    
+    def add_finding(severity, category, message):
+        tag = f"[{severity}]"
+        findings.append(f"{tag} {message}")
+        structured_findings.append({
+            "severity": severity,
+            "category": category,
+            "message": message
+        })
+
+    # Sub-score trackers
+    spam_penalty = 0
+    infra_penalty = 0
+    stability_penalty = 0
+
+    # 1. Domain Age Analysis
+    if whois_data and hasattr(whois_data, 'creation_date') and whois_data.creation_date:
+        try:
+            now = datetime.now()
+            c_date = whois_data.creation_date
+            if isinstance(c_date, list):
+                c_date = c_date[0]
+            if hasattr(c_date, 'tzinfo') and c_date.tzinfo is not None:
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
+            
+            age_years = (now - c_date).days / 365.0
+            if age_years < 1:
+                score -= 10
+                stability_penalty += 15
+                add_finding("WARNING", "Age", "Domain was first registered under 1 year ago (new domain).")
+            elif age_years < 2:
+                score -= 5
+                stability_penalty += 5
+                add_finding("INFO", "Age", "Domain was first registered under 2 years ago.")
+            else:
+                add_finding("INFO", "Age", f"Established domain history: ~{int(age_years)} years on record.")
+        except Exception:
+            pass
+    
+    # 2. Toxic Keywords Scan
+    toxic_count = audit_data.get('toxic_count', 0)
+    toxic_words = audit_data.get('toxic_words', [])
+    if toxic_count > 0:
+        penalty = min(40, toxic_count * 15)
+        score -= penalty
+        spam_penalty += penalty * 2
+        words_preview = ", ".join(toxic_words[:6])
+        add_finding("CRITICAL", "Content Spam", f"Found {toxic_count} toxic content instances in archives: {words_preview}")
+    else:
+        add_finding("INFO", "Content Spam", "Archive snapshots are clean of toxic keywords.")
+
+    # 3. Foreign Script Injection (Hacked doorway spam)
+    foreign_injection = audit_data.get('foreign_injection', {})
+    if foreign_injection.get('injected'):
+        score -= 20
+        spam_penalty += 30
+        scripts = ", ".join(foreign_injection.get('scripts', []))
+        add_finding("CRITICAL", "Foreign Script Injection", f"Historical doorway injection detected: {scripts} characters found in archive.")
+
+    # 4. PBN & Parking Footprint
+    pbn_info = audit_data.get('pbn_info', {})
+    if pbn_info.get('pbn_detected'):
+        score -= 25
+        spam_penalty += 30
+        add_finding("CRITICAL", "PBN Risk", "Private Blog Network (PBN) link farm footprint identified in archives.")
+    if pbn_info.get('is_parked'):
+        score -= 10
+        stability_penalty += 15
+        add_finding("WARNING", "Domain Parking", "Domain was parked with a holding/arbitrage provider during its history.")
+
+    # 5. Volatility (Drop gaps)
+    volatility = audit_data.get('volatility', 'Unknown')
+    if volatility == 'High':
+        score -= 20
+        stability_penalty += 30
+        add_finding("WARNING", "Volatility", "High history volatility: Extended multi-year gaps suggest domain dropping and re-registration.")
+    elif volatility == 'Medium':
+        score -= 10
+        stability_penalty += 15
+        add_finding("INFO", "Volatility", "Medium volatility: Minor historical record gaps detected.")
+
+    # 6. Topic Drift
+    topic_drift = audit_data.get('topic_drift', {})
+    drift_level = topic_drift.get('drift_level', 'Low')
+    if drift_level == 'High':
+        score -= 15
+        stability_penalty += 20
+        add_finding("WARNING", "Topic Drift", topic_drift.get('description', 'High topic drift across sectors.'))
+
+    # 7. Tech Stack Instability
+    if audit_data.get('tech_changes', 0) > 2:
+        score -= 10
+        stability_penalty += 10
+        add_finding("WARNING", "Infrastructure", "Multiple CMS/platform changes detected across historical snapshots.")
+
+    # 8. DNSBL Blacklist
+    if audit_data.get('blacklisted', False):
+        score -= 30
+        infra_penalty += 45
+        bl_count = audit_data.get('blacklist_count', 0)
+        bl_names = ", ".join(audit_data.get('blacklist_sources', [])[:3])
+        add_finding("CRITICAL", "Blacklist", f"Domain or IP actively flagged on {bl_count} spam blacklists ({bl_names}).")
+    else:
+        add_finding("INFO", "Blacklist", "Clean IP/domain reputation: No DNSBL blacklist listings detected.")
+
+    # 9. SSL Certificate Status
+    ssl_status = audit_data.get('ssl_status', {})
+    if ssl_status.get('error'):
+        score -= 10
+        infra_penalty += 15
+        add_finding("WARNING", "SSL", f"SSL certificate issue: {ssl_status.get('error')}")
+    elif ssl_status.get('days_until_expiry', 365) is not None and ssl_status.get('days_until_expiry', 365) < 30:
+        score -= 5
+        infra_penalty += 10
+        add_finding("WARNING", "SSL", f"SSL certificate expires in {ssl_status.get('days_until_expiry')} days.")
+    elif ssl_status.get('valid'):
+        add_finding("INFO", "SSL", f"Valid SSL certificate issued by {ssl_status.get('issuer', 'Trusted CA')}.")
+
+    # 10. Email Security (SPF & DMARC)
+    email_sec = audit_data.get('email_security', {})
+    if not email_sec.get('has_spf'):
+        score -= 10
+        infra_penalty += 15
+        add_finding("WARNING", "Email Security", "No SPF record found. Domain is vulnerable to sender spoofing.")
+    if not email_sec.get('has_dmarc'):
+        score -= 10
+        infra_penalty += 15
+        add_finding("WARNING", "Email Security", "No DMARC policy configured. Emails from this domain may fail modern provider delivery.")
+
+    # 11. Domain Expiry Alert
+    if audit_data.get('domain_expiring_soon', False):
+        days_left = audit_data.get('days_until_domain_expiry', 0)
+        score -= 10
+        stability_penalty += 10
+        add_finding("WARNING", "Registration", f"Domain registration expires in {days_left} days.")
+
+    # 12. Suspicious Redirects
+    if audit_data.get('redirect_count', 0) > 3 or audit_data.get('domain_changed', False):
+        score -= 15
+        infra_penalty += 20
+        add_finding("WARNING", "Redirects", "Suspicious redirect chain detected leading to an alternate destination.")
+
+    # 13. MX Records
+    if audit_data.get('no_mx_records', False):
+        score -= 5
+        infra_penalty += 5
+        add_finding("INFO", "Email Infrastructure", "No MX mail server records detected.")
+
+    overall_score = max(0, min(100, score))
+    spam_score = max(0, min(100, 100 - spam_penalty))
+    infra_score = max(0, min(100, 100 - infra_penalty))
+    stability_score = max(0, min(100, 100 - stability_penalty))
+
+    sub_scores = {
+        "spam_score": spam_score,
+        "infrastructure_score": infra_score,
+        "stability_score": stability_score
+    }
+
+    return overall_score, sub_scores, findings, structured_findings
