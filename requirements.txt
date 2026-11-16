@@ -1,4 +1,4 @@
-apify
+apify>=3.0.0
 waybackpy
 python-whois
 beautifulsoup4
